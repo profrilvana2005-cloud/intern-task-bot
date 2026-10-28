@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Intern Task Bot</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--text:#1a1a1a;--muted:#666;--line:#e3e3e3;--accent:#2f6fed}
+@media(prefers-color-scheme:dark){:root{--bg:#141414;--card:#1e1e1e;--text:#eee;--muted:#aaa;--line:#333}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 16px}
+h1{margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:20px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,textarea{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--bg);color:var(--text)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:600px){.row{grid-template-columns:1fr}}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-size:14px;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent);padding:4px 10px;font-size:12px}
+button:disabled{opacity:.6;cursor:wait}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+.badge{padding:2px 10px;border-radius:999px;font-size:12px}
+.active{background:#fff3cd;color:#7a5b00}.completed{background:#d6f5e0;color:#17693a}
+#msg{margin-top:10px;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Intern Task Bot</h1>
+
+  <div class="card">
+    <h3 style="margin-top:0">Assign a new task</h3>
+    <div class="row">
+      <div><label>Intern name</label><input id="intern_name"></div>
+      <div><label>Intern email</label><input id="intern_email" type="email"></div>
+    </div>
+    <label>Task title</label><input id="title">
+    <label>Task description</label><textarea id="description" rows="3"></textarea>
+    <label>Expected output (what the company wants)</label><textarea id="expected_output" rows="3"></textarea>
+    <label>Review every (days)</label><input id="review_days" type="number" min="0" value="2" style="width:120px">
+    <p><button id="go">Assign task &amp; send voice mail</button></p>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">All tasks</h3>
+    <div class="tbl"><table>
+      <thead><tr><th>Intern</th><th>Task</th><th>Status</th><th>Attempt</th><th>Review date</th><th>Voice</th><th>Link</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let player = null;
+
+function play(token, lang){
+  if(player){ player.pause(); }
+  player = new Audio(`/voice/${token}/${lang}`);
+  player.play().catch(()=>alert("Voice not available yet"));
+}
+
+function td(content){
+  const c = document.createElement("td");
+  if(content instanceof Node) c.appendChild(content); else c.textContent = content;
+  return c;
+}
+
+async function load(){
+  const res = await fetch("/tasks");
+  const tasks = await res.json();
+  const body = $("rows");
+  body.textContent = "";
+  if(!tasks.length){
+    const r = document.createElement("tr");
+    const c = td("No tasks yet"); c.colSpan = 7; r.appendChild(c); body.appendChild(r);
+    return;
+  }
+  for(const t of tasks){
+    const r = document.createElement("tr");
+    const badge = document.createElement("span");
+    badge.className = "badge " + t.status; badge.textContent = t.status;
+
+    const voice = document.createElement("span");
+    [["ta","தமிழ்"],["en","EN"],["hi","हिं"]].forEach(([l,label])=>{
+      const b = document.createElement("button");
+      b.className = "ghost"; b.textContent = "▶ " + label; b.style.marginRight = "4px";
+      b.onclick = () => play(t.token, l);
+      voice.appendChild(b);
+    });
+
+    const copy = document.createElement("button");
+    copy.className = "ghost"; copy.textContent = "Copy link";
+    copy.onclick = () => navigator.clipboard.writeText(t.link).then(()=>{ copy.textContent="Copied"; setTimeout(()=>copy.textContent="Copy link",1200); });
+
+    r.append(td(t.intern_name + " (" + t.intern_email + ")"), td(t.title), td(badge),
+             td("#" + t.iteration), td(t.review_date), td(voice), td(copy));
+    body.appendChild(r);
+  }
+}
+
+$("go").onclick = async () => {
+  const btn = $("go"), msg = $("msg");
+  const data = {
+    intern_name: $("intern_name").value.trim(),
+    intern_email: $("intern_email").value.trim(),
+    title: $("title").value.trim(),
+    description: $("description").value.trim(),
+    expected_output: $("expected_output").value.trim(),
+    review_days: parseInt($("review_days").value || "2", 10)
+  };
+  if(Object.values(data).some(v => v === "" || Number.isNaN(v))){ msg.textContent = "Please fill all fields."; return; }
+  btn.disabled = true; msg.textContent = "Creating voice messages… this takes a few seconds.";
+  try{
+    const res = await fetch("/tasks", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data)});
+    if(!res.ok) throw new Error("Server error " + res.status);
+    msg.textContent = "Task assigned. Voice mail sent to " + data.intern_email + ".";
+    ["title","description","expected_output"].forEach(k => $(k).value = "");
+    load();
+  }catch(e){ msg.textContent = "Failed: " + e.message; }
+  btn.disabled = false;
+};
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

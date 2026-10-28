@@ -1,0 +1,16 @@
+# secrets - NEVER commit
+.env
+*.env
+
+# virtual environment
+venv/
+.venv/
+
+# generated data
+interns.db
+audio_out/
+voice_store/
+
+# python
+__pycache__/
+*.pyc

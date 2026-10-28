@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+apscheduler
+anthropic
+python-multipart
+edge-tts
+python-dotenv
